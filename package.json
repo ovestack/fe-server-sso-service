@@ -1,0 +1,11 @@
+{
+  "name": "ovestack-sso-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "author": "toby",
+  "license": "ISC",
+  "dependencies": {
+    "request": "^2.88.0"
+  }
+}
