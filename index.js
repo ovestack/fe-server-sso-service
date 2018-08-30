@@ -50,12 +50,8 @@ exports.store = function ({
     return redis.setex(`${REDIS_KEY}:${sessionId}`, expired, JSON.stringify(userInfo))
 }
 
-exports.restore = function (sessionIds) {
-    return Promise.all(
-        sessionIds.map(sessionId => {
-            return redis.del(`${REDIS_KEY}:${sessionId}`)
-        })
-    )
+exports.restore = function (sessionId) {
+    return redis.del(`${REDIS_KEY}:${sessionId}`)
 }
 
 exports.checkLogin = async function (ctx) {
