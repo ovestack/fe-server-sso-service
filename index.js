@@ -1,5 +1,3 @@
-var util = require('util')
-var request = require('request')
 var redis = requireMod('redis')()
 const zk = requireMod('zookeeper')
 var logger = getLogger('zk-sso-service')
@@ -7,17 +5,16 @@ var logger = getLogger('zk-sso-service')
 var DEF_CONF = {
     serviceMark: 'ovestack',
     exclude: [],
-    tokenKey: 'ssoToken',
+    prefix: 'sso:ss',
+    key: 'sso.sid',
     redirect(ctx) {
         return `${ctx.protocol}://${ctx.get('host')}${ctx.originalUrl}`
-    },
-    getToken(ctx) {
-        return ctx.session[this.tokenKey]
     }
 }
 var config = exports.config = Object.assign(DEF_CONF, getConfig().sso || {})
-const REDIS_TOKEN_KEY = config.tokenKey
-const SERVICE_MARK = config.serviceMark
+
+const REDIS_KEY = config.prefix
+const SSO_KEY= `${config.serviceMark}:${config.key}`
 
 var getData = function(path) {
     return new Promise(function(resolve, reject) {
@@ -33,7 +30,7 @@ var getData = function(path) {
 /**
  * 获取服务地址
  */
-var getUrl = exports.getUrl = function(type) {
+exports.getUrl = function(type) {
     switch (type) {
         default:
             return getData(`/sso/${type}`).catch(err => {
@@ -43,58 +40,33 @@ var getUrl = exports.getUrl = function(type) {
 }
 
 /**
- * 校验token
- * @param {*} token 
- */
-exports.verify = async function (token) {
-    var url = await getUrl('verify')
-    try {
-        var re = await util.promisify(request)({
-            url,
-            qs: {
-                token,
-                service: SERVICE_MARK
-            },
-            json: true
-        })
-        if (re.body && re.body.code === 200) {
-            await store(token)
-        } else {
-            return re.message
-        }
-    } catch (err) {
-        return err
-    }
-    
-}
-
-/**
- * 获取用户信息
- * @param {*} token 
- */
-exports.getUser = async function (token) {
-    var url = await getUrl('user')
-    var re = await util.promisify(request)({
-        url,
-        headers: {
-            'x-token': token
-        },
-        json: true
-    })
-    return re.body
-}
-
-/**
  * 客户端保存登陆态
  */
-var store = exports.store = function (token) {
-    return redis.zadd(REDIS_TOKEN_KEY, 1, token)
+exports.store = function ({
+    sessionId,
+    expired,
+    userInfo
+}) {
+    return redis.setex(`${REDIS_KEY}:${sessionId}`, expired, JSON.stringify(userInfo))
 }
 
-exports.restore = function (token) {
-    return redis.zrem(REDIS_TOKEN_KEY, token)
+exports.restore = function (sessionIds) {
+    return Promise.all(
+        sessionIds.map(sessionId => {
+            return redis.del(`${REDIS_KEY}:${sessionId}`)
+        })
+    )
 }
 
-exports.has = function (token) {
-    return redis.zscore(REDIS_TOKEN_KEY, token)
+exports.checkLogin = async function (ctx) {
+    var sessionId = ctx.cookies.get(SSO_KEY)
+    return sessionId && await redis.get(`${REDIS_KEY}:${sessionId}`)
+}
+
+exports.getUser = async function (ctx) {
+    var sessionId = ctx.cookies.get(SSO_KEY)
+    var re = await redis.del(`${REDIS_KEY}:${sessionId}`)
+    if (re) {
+        return JSON.parse(re)
+    }
 }
